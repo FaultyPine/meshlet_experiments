@@ -1,0 +1,16 @@
+{
+    "files.associations": {
+        "*.type": "metadesk",
+        "tupfile": "plaintext",
+        "stdlib.h": "c",
+        "sokol_app.h": "c",
+        "sokol_log.h": "c",
+        "common.h": "c",
+        "main_web.h": "c",
+        "emsc.h": "c",
+        "sokol_time.h": "c",
+        "stdio.h": "c",
+        "system_error": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
+}

@@ -1,0 +1,37 @@
+# https://gittup.org/tup/manual.html
+
+# tell tup to generate a gitignore for it's generated files
+.gitignore
+
+APPNAME=app
+SHADER_DIR=shaders/
+SHADER_GENERATION_DIR=$(TUP_VARIANTDIR)/$(SHADER_DIR)/generated/@(SHADER_LANG)/
+
+OUTPUT_EXTENSION=exe
+ifdef OUTPUT_EXTENSION_OVERRIDE
+    OUTPUT_EXTENSION=@(OUTPUT_EXTENSION_OVERRIDE)
+endif
+COMPILER=clang
+LINKER=clang
+ifdef COMPILER_OVERRIDE
+    COMPILER=@(COMPILER_OVERRIDE)
+endif
+LINKER_OUTPUTS=$(TUP_VARIANTDIR)/$(APPNAME).pdb $(TUP_VARIANTDIR)/$(APPNAME).ilk
+ifeq ($(COMPILER),emcc)
+    LINKER_OUTPUTS=$(TUP_VARIANTDIR)/$(APPNAME).wasm $(TUP_VARIANTDIR)/$(APPNAME).js
+endif
+ifdef LINKER_OVERRIDE
+    LINKER=@(LINKER_OVERRIDE)
+endif
+
+# build shaders
+: foreach $(SHADER_DIR)/*.glsl |> "external/sokol-tools-bin/bin/win32/sokol-shdc.exe" --input %f --output %o --slang @(SHADER_LANG) --ifdef |> $(SHADER_GENERATION_DIR)/%B_shdc.h {generated_shaders}
+
+# build objects
+: foreach src/*.c | {generated_shaders} |> CMD /c $(COMPILER) -I$(TUP_CWD) -I$(TUP_VARIANTDIR) @(COMPILER_ARGS) -c %f -o %o |> $(TUP_VARIANTDIR)/%B.o {generated_objects}
+
+# link
+: {generated_objects} |> CMD /c $(COMPILER) @(LINKER_ARGS) %f -o %o |> $(TUP_VARIANTDIR)/$(APPNAME).$(OUTPUT_EXTENSION) | $(LINKER_OUTPUTS)
+
+
+
