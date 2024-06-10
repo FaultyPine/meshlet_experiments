@@ -16,9 +16,9 @@ LINKER=clang
 ifdef COMPILER_OVERRIDE
     COMPILER=@(COMPILER_OVERRIDE)
 endif
-LINKER_OUTPUTS=$(TUP_VARIANTDIR)/$(APPNAME).pdb $(TUP_VARIANTDIR)/$(APPNAME).ilk
+LINKER_OUTPUTS=$(APPNAME).pdb $(APPNAME).ilk
 ifeq ($(COMPILER),emcc)
-    LINKER_OUTPUTS=$(TUP_VARIANTDIR)/$(APPNAME).wasm $(TUP_VARIANTDIR)/$(APPNAME).js
+    LINKER_OUTPUTS=$(APPNAME).wasm $(APPNAME).js
 endif
 ifdef LINKER_OVERRIDE
     LINKER=@(LINKER_OVERRIDE)
@@ -31,7 +31,8 @@ endif
 : foreach src/*.c | {generated_shaders} |> CMD /c $(COMPILER) -I$(TUP_CWD) -I$(TUP_VARIANTDIR) @(COMPILER_ARGS) -c %f -o %o |> $(TUP_VARIANTDIR)/%B.o {generated_objects}
 
 # link
-: {generated_objects} |> CMD /c $(COMPILER) @(LINKER_ARGS) %f -o %o |> $(TUP_VARIANTDIR)/$(APPNAME).$(OUTPUT_EXTENSION) | $(LINKER_OUTPUTS)
+: {generated_objects} |> CMD /c $(COMPILER) @(LINKER_ARGS) %f -o %o |> $(APPNAME).$(OUTPUT_EXTENSION) | $(LINKER_OUTPUTS) {built_files}
+
 
 
 

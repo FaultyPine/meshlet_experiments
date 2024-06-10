@@ -25,7 +25,7 @@ static struct
     sg_pass_action pass_action;
 } state;
 
-int draw(double time, void* userdata);
+int tick(double time, void* userdata);
 
 static void init() 
 {
@@ -74,11 +74,11 @@ static void init()
 
     #ifdef TARGET_WEB
     // hand off control to browser loop
-    emscripten_request_animation_frame_loop(draw, 0);
+    emscripten_request_animation_frame_loop(tick, 0);
     #endif
 }
 
-int draw(double time, void* userdata)
+void draw()
 {
     sg_swapchain swapchain = {};
     #ifdef TARGET_WEB
@@ -93,19 +93,23 @@ int draw(double time, void* userdata)
     sg_draw(0, 3, 1);
     sg_end_pass();
     sg_commit();
+
+}
+
+int tick(double time, void* userdata)
+{
+    draw();
     return true;
 }
 
-void tick()
+void frame_sokol_cb() 
 {
-    
-}
-
-void frame() 
-{
+    #ifndef EMSCRIPTEN
+    // only in desktop builds we should manually call our per-frame func
+    // in web builds the browser does it for us - emscripten_request_animation_frame_loop
     double timeSec = stm_sec(stm_now());
-    tick();
-    draw(timeSec, 0);
+    tick(timeSec, 0);
+    #endif
 }
 
 void cleanup() 
@@ -138,7 +142,7 @@ sapp_desc sokol_main(int argc, char* argv[])
         .width = 1280,
         .height = 720,
         .init_cb = init,
-        .frame_cb = frame,
+        .frame_cb = frame_sokol_cb,
         .cleanup_cb = cleanup,
         .event_cb = event,
         .logger.func = slog_func,

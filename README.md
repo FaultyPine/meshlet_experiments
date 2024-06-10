@@ -1,4 +1,9 @@
-  
+# ideas
+- topiary business
+    - take care of - i.e. trim & water hedges, shape them to what the client wants
+    - must plant and sell hedges, can upgrade trimmers, fertilizer, space to grow, etc
+
+
   
 ## build dependencies  
 
