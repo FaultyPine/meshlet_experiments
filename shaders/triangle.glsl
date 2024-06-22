@@ -1,23 +1,27 @@
 @vs vs
-in vec4 position;
-in vec4 color0;
+in vec2 position;
+in vec2 texcoord;
 
-out vec4 color;
+out vec2 texcoord_inter;
 
 void main() 
 {
-    gl_Position = position;
-    color = color0;
+    gl_Position = vec4(position, 0, 1);
+    texcoord_inter = texcoord;
 }
 @end
 
 @fs fs
-in vec4 color;
+in vec2 texcoord_inter;
 out vec4 frag_color;
+
+uniform texture2D tex;
+uniform sampler smp;
+
 
 void main() 
 {
-    frag_color = color;
+    frag_color = texture(sampler2D(tex,smp), texcoord_inter);
 }
 @end
 

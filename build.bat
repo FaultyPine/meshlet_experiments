@@ -3,4 +3,4 @@
 
 call "activate_dev.bat"
 
-tup
+tup build-desktop
