@@ -7,7 +7,14 @@
 #define DEBUG_BREAK __builtin_trap()
 #endif
 
-#define SOKOL_IMPL
+#ifdef TARGET_WEB
+#define SOKOL_GLES3
+#elif defined(TARGET_DESKTOP)
+#define SOKOL_GLCORE
+#else
+#error "Unsupported target right now..."
+#endif
+
 #undef SOKOL_ASSERT
 #ifdef _DEBUG
 #include <stdio.h>
@@ -15,9 +22,5 @@
 #else
 #define SOKOL_ASSERT(x)
 #endif
-#include "external/sokol/sokol_app.h"
-#include "external/sokol/sokol_log.h"
-#include "external/sokol/sokol_gfx.h"
-#include "external/sokol/sokol_glue.h"
-#include "external/sokol/sokol_time.h"
+
 

@@ -10,7 +10,10 @@
         "emsc.h": "c",
         "sokol_time.h": "c",
         "stdio.h": "c",
-        "system_error": "c"
+        "system_error": "c",
+        "triangle_shdc.h": "c",
+        "tinyobjloader.h": "c",
+        "vector": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

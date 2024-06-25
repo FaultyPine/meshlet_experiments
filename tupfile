@@ -28,7 +28,7 @@ endif
 : foreach $(SHADER_DIR)/*.glsl |> "external/sokol-tools-bin/bin/win32/sokol-shdc.exe" --input %f --output %o --slang @(SHADER_LANG) --ifdef |> $(SHADER_GENERATION_DIR)/%B_shdc.h {generated_shaders}
 
 # build objects
-: foreach src/*.c | {generated_shaders} |> CMD /c $(COMPILER) -I$(TUP_CWD) -I$(TUP_VARIANTDIR) @(COMPILER_ARGS) -c %f -o %o |> $(TUP_VARIANTDIR)/%B.o {generated_objects}
+: foreach src/*.cpp | {generated_shaders} |> CMD /c $(COMPILER) -I$(TUP_CWD) -I$(TUP_VARIANTDIR) @(COMPILER_ARGS) -c %f -o %o |> $(TUP_VARIANTDIR)/%B.o {generated_objects}
 
 # link
 : {generated_objects} |> CMD /c $(COMPILER) @(LINKER_ARGS) %f -o %o |> $(APPNAME).$(OUTPUT_EXTENSION) | $(LINKER_OUTPUTS) {built_files}
