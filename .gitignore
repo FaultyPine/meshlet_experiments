@@ -3,3 +3,5 @@
 ##### Do not edit.
 .tup
 /.gitignore
+build-desktop/
+build-web/
