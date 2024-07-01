@@ -14,6 +14,7 @@
 
 #include "external/tinygltf/tiny_gltf.h"
 #include "external/meshoptimizer/src/meshoptimizer.h"
+#define HANDMADE_MATH_IMPLEMENTATION // not sure why but web build needs impl here even tho it's in external_impl.cpp...?
 #include "external/HandmadeMath.h"
 
 #ifdef TARGET_WEB
@@ -155,12 +156,6 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primiti
 
 void init_model_pipeline()
 {
-    if (!sg_query_features().storage_buffer) 
-    {
-        SOKOL_ASSERT(!"Storage buffers not supported!");
-        return;
-    }
- 
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     std::string err;
