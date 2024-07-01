@@ -8,19 +8,20 @@
 #include "shaders/generated/glsl430/triangle_shdc.h"
 #endif
 
-sprite_pipeline_state init_sprite_pipeline()
+GraphicsPipelineState init_sprite_pipeline()
 {
-    sprite_pipeline_state sprite_pipeline_state = {};
-    static const float tex_quad[] = { 
+    GraphicsPipelineState sprite_pipeline_state = {};
+    float tex_quad[] = 
+    { 
         // top left is 0,0  bottom right is 1,1
         // pos      // tex
-        0.0f, 1.0f, 0.0f, 1.0f,
-        1.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 0.0f, 
+        -1.0f, 1.0f, 0.0f, 1.0f,
+        1.0f, -1.0f, 1.0f, 0.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f, 
 
-        0.0f, 1.0f, 0.0f, 1.0f,
+        -1.0f, 1.0f, 0.0f, 1.0f,
         1.0f, 1.0f, 1.0f, 1.0f,
-        1.0f, 0.0f, 1.0f, 0.0f
+        1.0f, -1.0f, 1.0f, 0.0f
     };
 
     sg_image_desc img_desc = {0};
@@ -31,8 +32,10 @@ sprite_pipeline_state init_sprite_pipeline()
 
     uint32_t img_data[IMG_WIDTH * IMG_HEIGHT];
 
-    for (int j = 0; j < IMG_HEIGHT; j++) {
-        for (int i = 0; i < IMG_WIDTH; i++) {
+    for (int j = 0; j < IMG_HEIGHT; j++) 
+    {
+        for (int i = 0; i < IMG_WIDTH; i++) 
+        {
             uint32_t r = (uint32_t)(((float)i / (IMG_WIDTH-1)) * 255.0);
             uint32_t g = (uint32_t)(((float)j / (IMG_HEIGHT-1)) * 255.0);
             uint32_t b = 0;

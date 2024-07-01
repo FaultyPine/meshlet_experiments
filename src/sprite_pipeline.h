@@ -1,11 +1,7 @@
 #pragma once
 
 #include "external/sokol/sokol_gfx.h"
+#include "graphics_pipeline.h"
 
-struct sprite_pipeline_state 
-{
-    sg_pipeline pip;
-    sg_bindings bind;
-};
 
-sprite_pipeline_state init_sprite_pipeline();
+GraphicsPipelineState init_sprite_pipeline();

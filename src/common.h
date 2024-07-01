@@ -1,5 +1,18 @@
 #pragma once
 
+
+typedef unsigned char u8;
+typedef char s8;
+typedef unsigned short u16;
+typedef short s16;
+typedef unsigned int u32;
+typedef int s32;
+typedef long long s64;
+typedef unsigned long long u64;
+typedef float f32;
+typedef double f64;
+
+
 #ifdef _MSC_VER
 #include <intrin.h>
 #define DEBUG_BREAK __debugbreak()
@@ -16,11 +29,7 @@
 #endif
 
 #undef SOKOL_ASSERT
-#ifdef _DEBUG
 #include <stdio.h>
 #define SOKOL_ASSERT(x) if (!(x)) { printf("%s | %s:%i", #x, __FILE__, __LINE__); DEBUG_BREAK; }
-#else
-#define SOKOL_ASSERT(x)
-#endif
 
 

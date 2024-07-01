@@ -4,6 +4,7 @@
 #include <emscripten/html5.h>
 #include <GLES3/gl3.h>
 
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-field-initializers"
@@ -32,9 +33,17 @@ static EM_BOOL _emsc_size_changed(int event_type, const EmscriptenUiEvent* ui_ev
 }
 
 /* initialize WebGL context and canvas */
-void emsc_init(const char* canvas_name, int flags) {
+void emsc_init(const char* canvas_name, int flags, int init_width = 0, int init_height = 0) {
     _emsc_canvas_name = canvas_name;
-    emscripten_get_element_css_size(canvas_name, &_emsc_width, &_emsc_height);
+    if (init_width == 0 && init_height == 0)
+    {
+        emscripten_get_element_css_size(canvas_name, &_emsc_width, &_emsc_height);
+    }
+    else
+    {
+        _emsc_width = init_width;
+        _emsc_height = init_height;
+    }
     emscripten_set_canvas_element_size(canvas_name, _emsc_width, _emsc_height);
     emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, false, _emsc_size_changed);
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
