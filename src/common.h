@@ -21,7 +21,7 @@ typedef double f64;
 #endif
 
 #ifdef TARGET_WEB
-#define SOKOL_GLES3
+#define SOKOL_WGPU
 #elif defined(TARGET_DESKTOP)
 #define SOKOL_GLCORE
 #else

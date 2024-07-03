@@ -13,3 +13,20 @@
 - emsdk (only for web building) - https://emscripten.org/docs/getting_started/downloads.html (you'll also need the emsdk in your PATH environment variable so activate_dev.bat can pick up the emscripten activation script. Or use emsdk.bat activate --permanent)  
 
 once dependencies are installed, run `activate_dev.bat` and then `firsttime_init.bat`
+
+
+
+# TODO:
+- ~~transfer web from webgl/opengl-es to webgpu (wgpu supports storage buffers and ogles doesn't)~~
+- try vertex pulling again
+- ~~move meshlet data to gpu buffers~~
+- ~~render meshlet assignments~~
+- ~~extract camera frustum planes~~
+- ~~extract meshlet bounding spheres~~
+- render meshlet bounding spheres
+- render arbitrary frustum
+- run frustum cull on all meshlet spheres each frame
+- display culling
+    - actually not render culled meshlets
+    - just color those meshlets differently based on cull
+- occlusion culling? 

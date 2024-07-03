@@ -10,7 +10,6 @@
 #include "external/sokol/sokol_fetch.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "external/imgui/imgui.h"
-
 // imgui source
 #include "external/imgui/imgui_draw.cpp"
 #include "external/imgui/imgui_tables.cpp"
@@ -20,7 +19,6 @@
 #include "external/sokol/sokol_imgui.h"
 #undef SOKOL_IMPL
 
-
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -28,6 +26,8 @@
 
 
 #define HANDMADE_MATH_IMPLEMENTATION
+#define HANDMADE_MATH_CPP_MODE
 #include "external/HandmadeMath.h"
+#undef HANDMADE_MATH_IMPLEMENTATION
 
 #include "external/meshoptimizer/src/clusterizer.cpp"

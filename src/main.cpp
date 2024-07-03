@@ -14,12 +14,12 @@
 
 #include "external/tinygltf/tiny_gltf.h"
 #include "external/meshoptimizer/src/meshoptimizer.h"
-#define HANDMADE_MATH_IMPLEMENTATION // not sure why but web build needs impl here even tho it's in external_impl.cpp...?
+#define HANDMADE_MATH_IMPLEMENTATION
 #include "external/HandmadeMath.h"
+#undef HANDMADE_MATH_IMPLEMENTATION
 
 #ifdef TARGET_WEB
-#include "external/emsc.h"
-#include "shaders/generated/glsl300es/lit_model_shdc.h"
+#include "shaders/generated/wgsl/lit_model_shdc.h"
 #elif defined(TARGET_DESKTOP)
 #include "shaders/generated/glsl430/lit_model_shdc.h"
 #endif
@@ -30,18 +30,9 @@
 #include "input.h"
 #include "graphics_pipeline.h"
 #include "log.h"
+#include "camera.h"
 
 
-
-struct Camera
-{
-    hmm_vec3 pos;
-    hmm_vec3 front;
-    hmm_vec3 lookat_override;
-    bool should_override_lookat;
-    float yaw;
-    float pitch;
-};
 
 
 struct MyMesh
@@ -56,11 +47,14 @@ struct MyMesh
     std::vector<float> vert_positions = {};
     std::vector<float> vert_normals = {};
     std::vector<float> vert_texcoords = {};
+    std::vector<unsigned int> meshlet_indices = {};
+    std::vector<meshopt_Bounds> meshlet_bounds = {};
 
     sg_buffer idx_buf;
     sg_buffer vert_pos_buf;
     sg_buffer vert_normal_buf;
     sg_buffer vert_texcoord_buf;
+    sg_buffer vert_meshlet_idx_buf;
 };
 
 struct RuntimeState
@@ -71,20 +65,6 @@ struct RuntimeState
     MyMesh mesh = {};
 };
 static RuntimeState state;
-
-
-hmm_vec2 window_dimensions = {1280, 720};
-
-hmm_vec2 GetWindowDimensions()
-{
-    return window_dimensions;
-}
-float GetWindowWidth() { return window_dimensions.X; }
-float GetWindowHeight() { return window_dimensions.Y; }
-
-
-int tick(double time, void* userdata);
-
 
 
 
@@ -130,7 +110,7 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primiti
     }
     else
     {
-        mesh.vert_texcoords = std::vector<float>(mesh.vert_positions.size(), 0.0);
+        mesh.vert_texcoords = std::vector<float>(mesh.vert_positions.size());
     }
 
     sg_buffer_desc buf_desc = 
@@ -151,11 +131,61 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primiti
     buf_desc.data = {mesh.vert_texcoords.data(), mesh.vert_texcoords.size() * sizeof(float)};
     mesh.vert_texcoord_buf = sg_make_buffer(buf_desc);
 
+    // meshlet stuff
+    
+    const size_t max_vertices = 64;
+    const size_t max_triangles = 124;
+    const float cone_weight = 0.0f;
+
+    size_t max_meshlets = meshopt_buildMeshletsBound(mesh.indices.size(), max_vertices, max_triangles);
+    std::vector<meshopt_Meshlet> meshlets(max_meshlets);
+    // indices into original vertex buffer
+    std::vector<unsigned int> meshlet_vertices(max_meshlets * max_vertices);
+    std::vector<unsigned char> meshlet_triangles(max_meshlets * max_triangles * 3);
+
+    size_t meshlet_count = meshopt_buildMeshlets(meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(), mesh.indices.data(),
+        mesh.indices.size(), mesh.vert_positions.data(), mesh.vert_positions.size(), sizeof(float)*3, max_vertices, max_triangles, cone_weight);
+    meshlets.resize(meshlet_count);
+    LOG_INFO("built %i meshlets\n", meshlet_count);
+
+    for (int i = 0; i < meshlets.size(); i++)
+    {
+        const meshopt_Meshlet& meshlet = meshlets[i];
+        meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[meshlet.vertex_offset], &meshlet_triangles[meshlet.triangle_offset], meshlet.triangle_count, mesh.vert_positions.data(), mesh.vert_positions.size(), sizeof(float)*3);
+        mesh.meshlet_bounds.push_back(bounds);
+    }
+
+    // buffer for visualizing which vertices belong to which meshlets
+    mesh.meshlet_indices.resize(mesh.vert_positions.size());
+    for (unsigned int meshlet_id = 0; meshlet_id < meshlets.size(); meshlet_id++)
+    {  
+        const meshopt_Meshlet& meshlet = meshlets[meshlet_id];
+        for (int j = 0; j < meshlet.vertex_count; j++)
+        {
+            unsigned int meshlet_proxy_buffer_idx = meshlet.vertex_offset + j;
+            SOKOL_ASSERT(meshlet_proxy_buffer_idx < meshlet_vertices.size());
+            unsigned int actual_meshlet_vert_idx = meshlet_vertices[meshlet_proxy_buffer_idx];
+
+            SOKOL_ASSERT(actual_meshlet_vert_idx < mesh.meshlet_indices.size());
+            SOKOL_ASSERT(meshlet_id <= USHRT_MAX);
+            mesh.meshlet_indices[actual_meshlet_vert_idx] = meshlet_id;
+        }
+    }
+    sg_buffer_desc buffer_desc =  
+    {
+        .type = sg_buffer_type::SG_BUFFERTYPE_VERTEXBUFFER,
+        .data = {mesh.meshlet_indices.data(), mesh.meshlet_indices.size() * sizeof(unsigned int)},
+    };
+    mesh.vert_meshlet_idx_buf = sg_make_buffer(&buffer_desc);
+    // end meshlet stuff
+
     return mesh;
 }
 
 void init_model_pipeline()
 {
+    sg_features features = sg_query_features();
+    LOG_INFO("Storage buffer support: %i\n", features.storage_buffer);
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     std::string err;
@@ -177,43 +207,42 @@ void init_model_pipeline()
 
     MyMesh& mesh = state.mesh;
     mesh = GltfPrimitiveToMesh(model, model.meshes.at(0).primitives.at(0));
-    /*
     
-    const size_t max_vertices = 64;
-    const size_t max_triangles = 124;
-    const float cone_weight = 0.0f;
-
-    size_t max_meshlets = meshopt_buildMeshletsBound(indices.size(), max_vertices, max_triangles);
-    std::vector<meshopt_Meshlet> meshlets(max_meshlets);
-    // indices into original vertex buffer
-    std::vector<unsigned int> meshlet_vertices(max_meshlets * max_vertices);
-    std::vector<unsigned char> meshlet_triangles(max_meshlets * max_triangles * 3);
-
-    size_t meshlet_count = meshopt_buildMeshlets(meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(), indices.data(),
-        indices.size(), attrib.vertices.data(), attrib.vertices.size(), sizeof(float)*3, max_vertices, max_triangles, cone_weight);
-    meshlets.resize(meshlet_count);
-
-    LOG_INFO("built %i meshlets\n", meshlet_count);
-    */
-
     sg_bindings bindings =
     {
-        .index_buffer = mesh.idx_buf,
         .vertex_buffers[0] = mesh.vert_pos_buf,
         .vertex_buffers[1] = mesh.vert_normal_buf,
         .vertex_buffers[2] = mesh.vert_texcoord_buf,
+        .vertex_buffers[3] = mesh.vert_meshlet_idx_buf,
+        .index_buffer = mesh.idx_buf,
     };
     sg_pipeline_desc pipeline_desc = 
     {
         .shader = sg_make_shader(lit_model_shader_desc(sg_query_backend())),
-        .index_type = SG_INDEXTYPE_UINT32,
         .layout = 
         {
             .attrs = 
             {
-                [ATTR_vs_position] = {.format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT3, .buffer_index = 0},
-                [ATTR_vs_normal] = {.format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT3, .buffer_index = 1},
-                [ATTR_vs_texcoord] = {.format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT2, .buffer_index = 2},
+                [ATTR_vs_position] = 
+                {
+                    .buffer_index = 0,
+                    .format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT3, 
+                },
+                [ATTR_vs_normal] = 
+                {
+                    .buffer_index = 1,
+                    .format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT3, 
+                },
+                [ATTR_vs_texcoord] = 
+                {
+                    .buffer_index = 2,
+                    .format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT2, 
+                },
+                [ATTR_vs_meshlet_idx] = 
+                {
+                    .buffer_index = 3,
+                    .format = sg_vertex_format::SG_VERTEXFORMAT_UBYTE4, 
+                },
             },
         },
         .depth = 
@@ -221,6 +250,7 @@ void init_model_pipeline()
             .compare = SG_COMPAREFUNC_LESS,
             .write_enabled = true,
         },
+        .index_type = SG_INDEXTYPE_UINT32,
         .cull_mode = SG_CULLMODE_BACK,
         .face_winding = sg_face_winding::SG_FACEWINDING_CCW,
     };
@@ -229,22 +259,16 @@ void init_model_pipeline()
     state.model_pipeline.bind = bindings;
 }
 
+
 static void init() 
 {
     stm_setup();
     sfetch_desc_t sfetch_desc = { .logger.func = slog_func };
     sfetch_setup(&sfetch_desc);
-    sg_environment env = {};
-    #ifdef TARGET_WEB
-    emsc_init("#canvas", EMSC_ANTIALIAS, (int)window_dimensions.X, (int)window_dimensions.Y);
-    env = emsc_environment();
-    #elif defined(TARGET_DESKTOP)
-    env = sglue_environment();
-    #endif
     sg_desc appdesc = 
     {
-        .environment = env,
         .logger.func = slog_func,
+        .environment = sglue_environment(),
     };
     sg_setup(&appdesc);
     simgui_desc_t imguidesc = { .logger = slog_func };
@@ -252,36 +276,12 @@ static void init()
 
     init_model_pipeline();
 
-    state.sprite_pipeline = init_sprite_pipeline();
+    //state.sprite_pipeline = init_sprite_pipeline();
 
-    state.cam.pos = {0, 0.5, 2.5};
-
-    #ifdef TARGET_WEB
-    // hand off control to browser loop
-    emscripten_request_animation_frame_loop(tick, 0);
-    #endif
+    InitializeCamera(state.cam);
 }
 
 
-hmm_mat4 GetCameraViewMatrix(const Camera& cam)
-{
-    hmm_vec3 center = HMM_AddVec3(cam.pos, cam.front);
-    if (cam.should_override_lookat)
-    {
-        center = cam.lookat_override;
-    }
-    hmm_mat4 view = HMM_LookAt(cam.pos, center, HMM_Vec3(0.0f, 1.0f, 0.0f));
-    return view;
-}
-
-hmm_vec3 GetNormalizedLookDir(float yaw, float pitch) 
-{
-    hmm_vec3 direction = HMM_Vec3(0,0,0);
-    direction.X = cos(HMM_ToRadians(yaw)) * cos(HMM_ToRadians(pitch));
-    direction.Y = sin(HMM_ToRadians(pitch));
-    direction.Z = sin(HMM_ToRadians(yaw)) * cos(HMM_ToRadians(pitch));
-    return HMM_NormalizeVec3(direction);
-}
 
 void draw()
 {
@@ -293,30 +293,21 @@ void draw()
         .dpi_scale = sapp_dpi_scale()
     };
     simgui_new_frame(&imgui_frame_desc);
-    sg_swapchain swapchain = {};
-    #ifdef TARGET_WEB
-    swapchain = emsc_swapchain();
-    #elif defined(TARGET_DESKTOP)
-    swapchain = sglue_swapchain();
-    #endif
     sg_pass_action pass_action =
     {
-        .colors[0] = { .load_action=SG_LOADACTION_CLEAR, .clear_value={0.0f, 0.0f, 0.0f, 1.0f } }
+        .colors[0] = { .load_action=SG_LOADACTION_CLEAR, .clear_value={ 0.0f, 0.0f, 0.0f, 1.0f } }
     };
-    sg_pass pass = { .action = pass_action, .swapchain = swapchain };
+    sg_pass pass = { .action = pass_action, .swapchain = sglue_swapchain() };
     sg_begin_pass(&pass);
-
     if (ImGui::BeginMainMenuBar())
     {
-        if (ImGui::BeginMenu("Utilities"))
+        if (ImGui::BeginMenu("Cam"))
         {
-            if (ImGui::MenuItem("Reset camera"))
+            if (ImGui::MenuItem("Reset to default position"))
             {
-                state.cam.pos = HMM_Vec3(0,0,0);
-                state.cam.front = HMM_Vec3(0,0,1);
-                state.cam.yaw = 0;
-                state.cam.pitch = 0;
+                state.cam.pos = {0, 0.5, 2.5};
             }
+            ImGui::SliderFloat("Camera orbit speed", &state.cam.orbit_speed, 0.0f, 20.0f);
             ImGui::EndMenu();
         }
 
@@ -324,7 +315,7 @@ void draw()
     }
 
     // models
-    hmm_mat4 proj = HMM_Perspective(60.0f, GetWindowWidth() / GetWindowHeight(), 0.01f, 100.0f);
+    hmm_mat4 proj = HMM_Perspective(60.0f, sapp_widthf() / sapp_heightf(), 0.01f, 100.0f);
     hmm_mat4 view = GetCameraViewMatrix(state.cam);
     hmm_mat4 model = HMM_Mat4d(1);
     hmm_mat4 mvp = HMM_MultiplyMat4(HMM_MultiplyMat4(proj, view), model);
@@ -342,8 +333,7 @@ void draw()
     }
 
     // sprites
-    const bool draw_sprites = false;
-    if (draw_sprites)
+    if (state.sprite_pipeline.pip.id)
     {
         sg_apply_pipeline(state.sprite_pipeline.pip);
         sg_apply_bindings(&state.sprite_pipeline.bind);
@@ -355,60 +345,12 @@ void draw()
     sg_commit();
 }
 
-void camera_tick()
-{
-    //cam input
-    Camera& cam = state.cam;
-    constexpr float speed = 0.1f;
-    hmm_vec3& cam_pos = cam.pos;
-    hmm_vec4 rotated = HMM_MultiplyMat4ByVec4(HMM_Rotate(0.7f, HMM_Vec3(0,1,0)), HMM_Vec4(cam_pos.X, cam_pos.Y, cam_pos.Z, 1.0));
-    cam_pos = HMM_Vec3(rotated.X, rotated.Y, rotated.Z);
-    hmm_vec3 camera_right = HMM_NormalizeVec3(HMM_Cross(cam.front, HMM_Vec3(0.0, 1.0, 0.0)));
-    if (IsKeyDown(SAPP_KEYCODE_W))
-    {
-        cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
-    }
-    if (IsKeyDown(SAPP_KEYCODE_S))
-    {
-        cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
-    }
-    if (IsKeyDown(SAPP_KEYCODE_A))
-    {
-        cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
-    }
-    if (IsKeyDown(SAPP_KEYCODE_D))
-    {
-        cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
-    }
-    if (IsKeyDown(SAPP_KEYCODE_LEFT_SHIFT))
-    {
-        cam_pos.Y -= speed;
-    }
-    if (IsKeyDown(SAPP_KEYCODE_SPACE))
-    {
-        cam_pos.Y += speed;
-    }
-
-    state.cam.should_override_lookat = true;
-    state.cam.lookat_override = HMM_Vec3(0,0,0);
-}
-
-int tick(double time, void* userdata)
-{
-    sfetch_dowork();
-    camera_tick();
-    draw();
-    return true;
-}
 
 void frame_sokol_cb() 
 {
-    #ifndef EMSCRIPTEN
-    // only in desktop builds we should manually call our per-frame func
-    // in web builds the browser does it for us - emscripten_request_animation_frame_loop
-    double timeSec = stm_sec(stm_now());
-    tick(timeSec, 0);
-    #endif
+    sfetch_dowork();
+    CameraTick(state.cam);
+    draw();
 }
 
 void cleanup() 
@@ -418,6 +360,22 @@ void cleanup()
     sg_shutdown();
 }
 
+void OnKeyDownEvent(int key)
+{
+    switch (key)
+    {
+        case SAPP_KEYCODE_ESCAPE:
+        {
+            sapp_quit();
+        } break;
+        case SAPP_KEYCODE_TAB:
+        {
+            sapp_show_mouse(!sapp_mouse_shown());
+            sapp_lock_mouse(!sapp_mouse_locked());
+        } break;
+        default: {} break;
+    }
+}
 
 void event(const sapp_event* event)
 {
@@ -437,27 +395,20 @@ void event(const sapp_event* event)
         state.cam.pitch = HMM_Clamp(-89.0f, state.cam.pitch, 89.0f);
         state.cam.front = GetNormalizedLookDir(state.cam.yaw, state.cam.pitch);
     }
-    else if (event->type == SAPP_EVENTTYPE_KEY_DOWN || event->type == SAPP_EVENTTYPE_CHAR)
+    else if (event->type == SAPP_EVENTTYPE_KEY_DOWN)
     {
-        switch (event->key_code)
-        {
-            case SAPP_KEYCODE_ESCAPE:
-            {
-                sapp_quit();
-            } break;
-            case SAPP_KEYCODE_TAB:
-            {
-                sapp_show_mouse(!sapp_mouse_shown());
-                sapp_lock_mouse(!sapp_mouse_locked());
-            } break;
-            default: {} break;
-        }
+        OnKeyDownEvent(event->key_code);
     }
     else if (event->type == SAPP_EVENTTYPE_RESIZED)
     {
         // window resize
-        window_dimensions = {(float)event->window_width, (float)event->window_height};
         LOG_INFO("New window dimensions: %ix%i\n", event->window_width, event->window_height);
+    }
+    else if (event->type == SAPP_EVENTTYPE_MOUSE_SCROLL)
+    {
+        constexpr float zoom_multiplier = 0.05f;
+        float scroll_vert_dist = event->scroll_y * zoom_multiplier;
+        state.cam.pos = HMM_AddVec3(state.cam.pos, HMM_MultiplyVec3f(state.cam.front, scroll_vert_dist));
     }
     InputSystemOnEvent(event);
 }
@@ -466,15 +417,15 @@ sapp_desc sokol_main(int argc, char* argv[])
 {
     sapp_desc app = 
     {
-        .width = (int)window_dimensions.X,
-        .height = (int)window_dimensions.Y,
         .init_cb = init,
         .frame_cb = frame_sokol_cb,
         .cleanup_cb = cleanup,
         .event_cb = event,
-        .logger.func = slog_func,
-        .icon.sokol_default = true,
+        .width = (int)640,
+        .height = (int)480,
         .window_title = "Playground",
+        .icon.sokol_default = true,
+        .logger.func = slog_func,
     };
     return app;
 }

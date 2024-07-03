@@ -89,7 +89,12 @@
         "xloctime": "cpp",
         "xmemory": "cpp",
         "xtr1common": "cpp",
-        "xtree": "cpp"
+        "xtree": "cpp",
+        "wgpu_entry.c": "cpp",
+        "wgpu_entry_emsc.c": "cpp",
+        "sokol_gfx.h": "c",
+        "*.x": "c",
+        "wgpu_entry_swapchain.c": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

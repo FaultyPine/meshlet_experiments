@@ -11,6 +11,7 @@
                 "_DEBUG",
                 "UNICODE",
                 "_UNICODE",
+                //"TARGET_WEB",
                 "TARGET_DESKTOP",
             ],
             "windowsSdkVersion": "10.0.22000.0",

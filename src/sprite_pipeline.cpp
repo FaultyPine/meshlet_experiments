@@ -3,7 +3,7 @@
 #include "common.h"
 
 #ifdef TARGET_WEB
-#include "shaders/generated/glsl300es/triangle_shdc.h"
+#include "shaders/generated/wgsl/triangle_shdc.h"
 #elif defined(TARGET_DESKTOP)
 #include "shaders/generated/glsl430/triangle_shdc.h"
 #endif
