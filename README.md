@@ -1,9 +1,5 @@
-# ideas
-- topiary business
-    - take care of - i.e. trim & water hedges, shape them to what the client wants
-    - must plant and sell hedges, can upgrade trimmers, fertilizer, space to grow, etc
-
-
+This is just a lil playground to mess around in. Not worried about performance, correctness, or really anything at all.  
+Messing with the sokol library, a new build system, meshlets... and whatever else I come up with  
   
 ## build dependencies  
 
