@@ -33,28 +33,22 @@
 #include "camera.h"
 
 
-
-
 struct MyMesh
 {
-    struct Vertex
+    struct SOKOL_SHDC_ALIGN(16) Vertex
     {
         hmm_vec4 position;
         hmm_vec4 normal;
         hmm_vec2 texcoord;
+        unsigned int meshlet_idx;
+        unsigned int pad;
     };
     std::vector<int> indices = {};
-    std::vector<float> vert_positions = {};
-    std::vector<float> vert_normals = {};
-    std::vector<float> vert_texcoords = {};
-    std::vector<unsigned int> meshlet_indices = {};
+    std::vector<Vertex> vertex_data = {};
     std::vector<meshopt_Bounds> meshlet_bounds = {};
 
     sg_buffer idx_buf;
-    sg_buffer vert_pos_buf;
-    sg_buffer vert_normal_buf;
-    sg_buffer vert_texcoord_buf;
-    sg_buffer vert_meshlet_idx_buf;
+    sg_buffer vertex_buf;
 };
 
 struct RuntimeState
@@ -66,9 +60,7 @@ struct RuntimeState
 };
 static RuntimeState state;
 
-
-
-MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primitive& prim)
+MyMesh GltfPrimitiveToMesh(const tinygltf::Model &model, const tinygltf::Primitive &prim)
 {
     MyMesh mesh = {};
     int indices_accessor = prim.indices;
@@ -77,18 +69,32 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primiti
         int indices_buf_view_idx = model.accessors[indices_accessor].bufferView;
         tinygltf::BufferView indices_bufview = model.bufferViews[indices_buf_view_idx];
         SOKOL_ASSERT(indices_bufview.target == TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
-        const std::vector<unsigned char>& gltf_indices = model.buffers[indices_bufview.buffer].data;
+        const std::vector<unsigned char> &gltf_indices = model.buffers[indices_bufview.buffer].data;
         mesh.indices.resize(indices_bufview.byteLength / 4);
         memcpy(mesh.indices.data(), gltf_indices.data() + indices_bufview.byteOffset, indices_bufview.byteLength);
+        sg_buffer_desc buf_desc =
+            {
+                .type = sg_buffer_type::SG_BUFFERTYPE_INDEXBUFFER,
+                .data = {mesh.indices.data(), mesh.indices.size() * sizeof(int)},
+            };
+        mesh.idx_buf = sg_make_buffer(buf_desc);
     }
+
+    struct GltfBufNView
+    {
+        tinygltf::BufferView view;
+        tinygltf::Buffer buf;
+    };
+    GltfBufNView vert_positions = {};
+    GltfBufNView vert_normals = {};
+    GltfBufNView vert_texcoords = {};
     if (prim.attributes.contains("POSITION"))
     {
         int accessor = prim.attributes.at("POSITION");
         int bufferview = model.accessors[accessor].bufferView;
         tinygltf::BufferView bufview = model.bufferViews[bufferview];
         tinygltf::Buffer buf = model.buffers[bufview.buffer];
-        mesh.vert_positions.resize(bufview.byteLength / 4);
-        memcpy(mesh.vert_positions.data(), buf.data.data() + bufview.byteOffset, bufview.byteLength);
+        vert_positions = {bufview, buf};
     }
     if (prim.attributes.contains("NORMAL"))
     {
@@ -96,8 +102,7 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primiti
         int bufferview = model.accessors[accessor].bufferView;
         tinygltf::BufferView bufview = model.bufferViews[bufferview];
         tinygltf::Buffer buf = model.buffers[bufview.buffer];
-        mesh.vert_normals.resize(bufview.byteLength / 4);
-        memcpy(mesh.vert_normals.data(), buf.data.data() + bufview.byteOffset, bufview.byteLength);
+        vert_normals = {bufview, buf};
     }
     if (prim.attributes.contains("TEXCOORD_0"))
     {
@@ -105,34 +110,51 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primiti
         int bufferview = model.accessors[accessor].bufferView;
         tinygltf::BufferView bufview = model.bufferViews[bufferview];
         tinygltf::Buffer buf = model.buffers[bufview.buffer];
-        mesh.vert_texcoords.resize(bufview.byteLength / 4);
-        memcpy(mesh.vert_texcoords.data(), buf.data.data() + bufview.byteOffset, bufview.byteLength);
+        vert_texcoords = {bufview, buf};
     }
-    else
+    SOKOL_ASSERT(vert_positions.view.buffer != -1);
+    SOKOL_ASSERT(vert_positions.view.byteLength % sizeof(float) == 0);
+    int num_vert_positions = vert_positions.view.byteLength / sizeof(float);
+    SOKOL_ASSERT(num_vert_positions % 3 == 0);
+    int num_triangles = num_vert_positions / 3;
+    for (int tri_idx = 0; tri_idx < num_triangles; tri_idx++)
     {
-        mesh.vert_texcoords = std::vector<float>(mesh.vert_positions.size());
+        MyMesh::Vertex vert = {};
+        // pos
+        {
+            float* data = (float*)(vert_positions.buf.data.data() + vert_positions.view.byteOffset);
+            float* triangle_data = data + (tri_idx * 3);
+            float vx = *(triangle_data+0);
+            float vy = *(triangle_data+1);
+            float vz = *(triangle_data+2);
+            hmm_vec4 pos = HMM_Vec4(vx,vy,vz,1.0f);
+            vert.position = pos;
+        }
+        // nrm
+        if (vert_normals.view.buffer != -1)
+        {
+            float* data = (float*)(vert_normals.buf.data.data() + vert_normals.view.byteOffset);
+            float* triangle_data = data + (tri_idx * 3);
+            float nx = *(triangle_data+0);
+            float ny = *(triangle_data+1);
+            float nz = *(triangle_data+2);
+            hmm_vec4 nrm = HMM_Vec4(nx,ny,nz,1.0f);
+            vert.normal = nrm;
+        }
+        // texcoord
+        if (vert_texcoords.view.buffer != -1)
+        {
+            float* data = (float*)(vert_texcoords.buf.data.data() + vert_texcoords.view.byteOffset);
+            float* triangle_data = data + (tri_idx * 2);
+            float tx = *(triangle_data+0);
+            float ty = *(triangle_data+1);
+            hmm_vec2 texcoord = HMM_Vec2(tx,ty);
+            vert.texcoord = texcoord;
+        }
+        mesh.vertex_data.push_back(vert);
     }
 
-    sg_buffer_desc buf_desc = 
-    {
-        .type = sg_buffer_type::SG_BUFFERTYPE_INDEXBUFFER,
-        .data = {mesh.indices.data(), mesh.indices.size() * sizeof(int)},
-    };
-    mesh.idx_buf = sg_make_buffer(buf_desc);
-
-    buf_desc.type = SG_BUFFERTYPE_VERTEXBUFFER;
-    buf_desc.data = {mesh.vert_positions.data(), mesh.vert_positions.size() * sizeof(float)};
-    mesh.vert_pos_buf = sg_make_buffer(buf_desc);
-    buf_desc.type = SG_BUFFERTYPE_VERTEXBUFFER;
-    buf_desc.data = {mesh.vert_normals.data(), mesh.vert_normals.size() * sizeof(float)};
-    mesh.vert_normal_buf = sg_make_buffer(buf_desc);
-    
-    buf_desc.type = SG_BUFFERTYPE_VERTEXBUFFER;
-    buf_desc.data = {mesh.vert_texcoords.data(), mesh.vert_texcoords.size() * sizeof(float)};
-    mesh.vert_texcoord_buf = sg_make_buffer(buf_desc);
-
-    // meshlet stuff
-    
+    /* #region meshlet stuff */
     const size_t max_vertices = 64;
     const size_t max_triangles = 124;
     const float cone_weight = 0.0f;
@@ -143,41 +165,42 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model& model, const tinygltf::Primiti
     std::vector<unsigned int> meshlet_vertices(max_meshlets * max_vertices);
     std::vector<unsigned char> meshlet_triangles(max_meshlets * max_triangles * 3);
 
+    // float3 position must be at the start of the vertex data for meshopt_buildMeshlets and meshopt_computeMeshletBounds
+    static_assert(offsetof(MyMesh::Vertex, position) == 0);
     size_t meshlet_count = meshopt_buildMeshlets(meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(), mesh.indices.data(),
-        mesh.indices.size(), mesh.vert_positions.data(), mesh.vert_positions.size(), sizeof(float)*3, max_vertices, max_triangles, cone_weight);
+                                                 mesh.indices.size(), (float*)mesh.vertex_data.data(), mesh.vertex_data.size(), sizeof(MyMesh::Vertex), max_vertices, max_triangles, cone_weight);
     meshlets.resize(meshlet_count);
     LOG_INFO("built %i meshlets\n", meshlet_count);
 
     for (int i = 0; i < meshlets.size(); i++)
     {
-        const meshopt_Meshlet& meshlet = meshlets[i];
-        meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[meshlet.vertex_offset], &meshlet_triangles[meshlet.triangle_offset], meshlet.triangle_count, mesh.vert_positions.data(), mesh.vert_positions.size(), sizeof(float)*3);
+        const meshopt_Meshlet &meshlet = meshlets[i];
+        meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[meshlet.vertex_offset], &meshlet_triangles[meshlet.triangle_offset], meshlet.triangle_count, (float*)mesh.vertex_data.data(), mesh.vertex_data.size(), sizeof(MyMesh::Vertex));
         mesh.meshlet_bounds.push_back(bounds);
     }
 
     // buffer for visualizing which vertices belong to which meshlets
-    mesh.meshlet_indices.resize(mesh.vert_positions.size());
+    // mesh.meshlet_indices.resize(mesh.vert_positions.size());
     for (unsigned int meshlet_id = 0; meshlet_id < meshlets.size(); meshlet_id++)
-    {  
-        const meshopt_Meshlet& meshlet = meshlets[meshlet_id];
-        for (int j = 0; j < meshlet.vertex_count; j++)
+    {
+        const meshopt_Meshlet &meshlet = meshlets[meshlet_id];
+        for (unsigned int j = 0; j < meshlet.vertex_count; j++)
         {
             unsigned int meshlet_proxy_buffer_idx = meshlet.vertex_offset + j;
             SOKOL_ASSERT(meshlet_proxy_buffer_idx < meshlet_vertices.size());
             unsigned int actual_meshlet_vert_idx = meshlet_vertices[meshlet_proxy_buffer_idx];
 
-            SOKOL_ASSERT(actual_meshlet_vert_idx < mesh.meshlet_indices.size());
-            SOKOL_ASSERT(meshlet_id <= USHRT_MAX);
-            mesh.meshlet_indices[actual_meshlet_vert_idx] = meshlet_id;
+            SOKOL_ASSERT(actual_meshlet_vert_idx < mesh.vertex_data.size());
+            mesh.vertex_data[actual_meshlet_vert_idx].meshlet_idx = meshlet_id;
         }
     }
-    sg_buffer_desc buffer_desc =  
+    /* #endregion */
+    sg_buffer_desc buf_desc = 
     {
-        .type = sg_buffer_type::SG_BUFFERTYPE_VERTEXBUFFER,
-        .data = {mesh.meshlet_indices.data(), mesh.meshlet_indices.size() * sizeof(unsigned int)},
+        .type = SG_BUFFERTYPE_STORAGEBUFFER,
+        .data = {mesh.vertex_data.data(), mesh.vertex_data.size() * sizeof(MyMesh::Vertex)},
     };
-    mesh.vert_meshlet_idx_buf = sg_make_buffer(&buffer_desc);
-    // end meshlet stuff
+    mesh.vertex_buf = sg_make_buffer(&buf_desc);
 
     return mesh;
 }
@@ -191,113 +214,79 @@ void init_model_pipeline()
     std::string err;
     std::string warn;
     bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, "res/dragon.glb"); // for binary glTF(.glb)
-    if (!warn.empty()) 
+    if (!warn.empty())
     {
         printf("Warn: %s\n", warn.c_str());
     }
-    if (!err.empty()) 
+    if (!err.empty())
     {
         printf("Err: %s\n", err.c_str());
     }
-    if (!ret) 
+    if (!ret)
     {
         printf("Failed to parse glTF\n");
         return;
     }
 
-    MyMesh& mesh = state.mesh;
+    MyMesh &mesh = state.mesh;
     mesh = GltfPrimitiveToMesh(model, model.meshes.at(0).primitives.at(0));
-    
+
     sg_bindings bindings =
-    {
-        .vertex_buffers[0] = mesh.vert_pos_buf,
-        .vertex_buffers[1] = mesh.vert_normal_buf,
-        .vertex_buffers[2] = mesh.vert_texcoord_buf,
-        .vertex_buffers[3] = mesh.vert_meshlet_idx_buf,
-        .index_buffer = mesh.idx_buf,
-    };
-    sg_pipeline_desc pipeline_desc = 
-    {
-        .shader = sg_make_shader(lit_model_shader_desc(sg_query_backend())),
-        .layout = 
         {
-            .attrs = 
-            {
-                [ATTR_vs_position] = 
-                {
-                    .buffer_index = 0,
-                    .format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT3, 
-                },
-                [ATTR_vs_normal] = 
-                {
-                    .buffer_index = 1,
-                    .format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT3, 
-                },
-                [ATTR_vs_texcoord] = 
-                {
-                    .buffer_index = 2,
-                    .format = sg_vertex_format::SG_VERTEXFORMAT_FLOAT2, 
-                },
-                [ATTR_vs_meshlet_idx] = 
-                {
-                    .buffer_index = 3,
-                    .format = sg_vertex_format::SG_VERTEXFORMAT_UBYTE4, 
-                },
-            },
-        },
-        .depth = 
+            .index_buffer = mesh.idx_buf,
+            .vs.storage_buffers[SLOT_ssbo_vert_data] = mesh.vertex_buf,
+        };
+    sg_pipeline_desc pipeline_desc =
         {
-            .compare = SG_COMPAREFUNC_LESS,
-            .write_enabled = true,
-        },
-        .index_type = SG_INDEXTYPE_UINT32,
-        .cull_mode = SG_CULLMODE_BACK,
-        .face_winding = sg_face_winding::SG_FACEWINDING_CCW,
-    };
+            .shader = sg_make_shader(lit_model_shader_desc(sg_query_backend())),
+            .depth =
+                {
+                    .compare = SG_COMPAREFUNC_LESS_EQUAL,
+                    .write_enabled = true,
+                },
+            .index_type = SG_INDEXTYPE_UINT32,
+            .cull_mode = SG_CULLMODE_BACK,
+            .face_winding = sg_face_winding::SG_FACEWINDING_CCW,
+        };
     sg_pipeline pipeline = sg_make_pipeline(&pipeline_desc);
     state.model_pipeline.pip = pipeline;
     state.model_pipeline.bind = bindings;
 }
 
-
-static void init() 
+static void init()
 {
     stm_setup();
-    sfetch_desc_t sfetch_desc = { .logger.func = slog_func };
+    sfetch_desc_t sfetch_desc = {.logger.func = slog_func};
     sfetch_setup(&sfetch_desc);
-    sg_desc appdesc = 
-    {
-        .logger.func = slog_func,
-        .environment = sglue_environment(),
-    };
+    sg_desc appdesc =
+        {
+            .logger.func = slog_func,
+            .environment = sglue_environment(),
+        };
     sg_setup(&appdesc);
-    simgui_desc_t imguidesc = { .logger = slog_func };
+    simgui_desc_t imguidesc = {.logger = slog_func};
     simgui_setup(&imguidesc);
 
     init_model_pipeline();
 
-    //state.sprite_pipeline = init_sprite_pipeline();
+    // state.sprite_pipeline = init_sprite_pipeline();
 
     InitializeCamera(state.cam);
 }
 
-
-
 void draw()
 {
-    simgui_frame_desc_t imgui_frame_desc = 
-    {
-        .width = sapp_width(),
-        .height = sapp_height(),
-        .delta_time = sapp_frame_duration(),
-        .dpi_scale = sapp_dpi_scale()
-    };
+    simgui_frame_desc_t imgui_frame_desc =
+        {
+            .width = sapp_width(),
+            .height = sapp_height(),
+            .delta_time = sapp_frame_duration(),
+            .dpi_scale = sapp_dpi_scale()};
     simgui_new_frame(&imgui_frame_desc);
     sg_pass_action pass_action =
-    {
-        .colors[0] = { .load_action=SG_LOADACTION_CLEAR, .clear_value={ 0.0f, 0.0f, 0.0f, 1.0f } }
-    };
-    sg_pass pass = { .action = pass_action, .swapchain = sglue_swapchain() };
+        {
+            .colors[0] = {.load_action = SG_LOADACTION_CLEAR, .clear_value = {0.0f, 0.0f, 0.0f, 1.0f}}};
+    sg_pass pass = {.action = pass_action, .swapchain = sglue_swapchain()};
     sg_begin_pass(&pass);
     if (ImGui::BeginMainMenuBar())
     {
@@ -323,7 +312,7 @@ void draw()
     {
         hmm_mat4 mvp;
     };
-    vs_params vs_params_instance = { .mvp = mvp };
+    vs_params vs_params_instance = {.mvp = mvp};
     if (state.model_pipeline.pip.id)
     {
         sg_apply_pipeline(state.model_pipeline.pip);
@@ -345,15 +334,14 @@ void draw()
     sg_commit();
 }
 
-
-void frame_sokol_cb() 
+void frame_sokol_cb()
 {
     sfetch_dowork();
     CameraTick(state.cam);
     draw();
 }
 
-void cleanup() 
+void cleanup()
 {
     simgui_shutdown();
     sfetch_shutdown();
@@ -364,20 +352,25 @@ void OnKeyDownEvent(int key)
 {
     switch (key)
     {
-        case SAPP_KEYCODE_ESCAPE:
-        {
-            sapp_quit();
-        } break;
-        case SAPP_KEYCODE_TAB:
-        {
-            sapp_show_mouse(!sapp_mouse_shown());
-            sapp_lock_mouse(!sapp_mouse_locked());
-        } break;
-        default: {} break;
+    case SAPP_KEYCODE_ESCAPE:
+    {
+        sapp_quit();
+    }
+    break;
+    case SAPP_KEYCODE_TAB:
+    {
+        sapp_show_mouse(!sapp_mouse_shown());
+        sapp_lock_mouse(!sapp_mouse_locked());
+    }
+    break;
+    default:
+    {
+    }
+    break;
     }
 }
 
-void event(const sapp_event* event)
+void event(const sapp_event *event)
 {
     if (simgui_handle_event(event))
     {
@@ -387,7 +380,7 @@ void event(const sapp_event* event)
     {
         float mousedx = event->mouse_dx;
         float mousedy = event->mouse_dy;
-        #define MOUSE_SENSITIVITY 0.05f
+#define MOUSE_SENSITIVITY 0.05f
         mousedx *= MOUSE_SENSITIVITY;
         mousedy *= MOUSE_SENSITIVITY;
         state.cam.pitch -= mousedy;
@@ -413,19 +406,19 @@ void event(const sapp_event* event)
     InputSystemOnEvent(event);
 }
 
-sapp_desc sokol_main(int argc, char* argv[]) 
+sapp_desc sokol_main(int argc, char *argv[])
 {
-    sapp_desc app = 
-    {
-        .init_cb = init,
-        .frame_cb = frame_sokol_cb,
-        .cleanup_cb = cleanup,
-        .event_cb = event,
-        .width = (int)640,
-        .height = (int)480,
-        .window_title = "Playground",
-        .icon.sokol_default = true,
-        .logger.func = slog_func,
-    };
+    sapp_desc app =
+        {
+            .init_cb = init,
+            .frame_cb = frame_sokol_cb,
+            .cleanup_cb = cleanup,
+            .event_cb = event,
+            .width = (int)640,
+            .height = (int)480,
+            .window_title = "Playground",
+            .icon.sokol_default = true,
+            .logger.func = slog_func,
+        };
     return app;
 }

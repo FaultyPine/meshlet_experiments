@@ -1,27 +1,24 @@
 @vs vs
 
-in vec3 position;
-in vec3 normal;
-in vec2 texcoord;
-in uint meshlet_idx;
 
 uniform vs_params
 {
     mat4 mvp;
 };
 
-// struct vertex_data 
-// { 
-//     vec4 position; 
-//     vec4 normal; 
-//     vec2 texcoord; 
-// };
+struct vertex_data // TODO: use interleaved vert data
+{
+    vec4 pos;
+    vec4 normal;
+    vec2 texcoord;
+    uint meshlet_idx;
+    uint pad;
+};
 
-// readonly buffer ssbo 
-// {
-//     vertex_data verts[];
-// };
-
+readonly buffer ssbo_vert_data
+{
+    vertex_data verts[];
+};
 
 out vec3 position_inter;
 out vec3 normal_inter;
@@ -30,16 +27,13 @@ out uint meshlet_idx_inter;
 
 void main() 
 {
-    // vec4 position = verts[gl_VertexIndex].position;
-    // gl_Position = mvp * position;
-    // position_inter = position.xyz;
-    // normal_inter = verts[gl_VertexIndex].normal.xyz;
-    // texcoord_inter = verts[gl_VertexIndex].texcoord.xy;
-    gl_Position = mvp * vec4(position.xyz, 1.0);
-    position_inter = position.xyz;
-    normal_inter = normal.xyz;
-    texcoord_inter = texcoord.xy;
-    meshlet_idx_inter = meshlet_idx;
+    vec3 pos = verts[gl_VertexIndex].pos.xyz;
+    normal_inter = verts[gl_VertexIndex].normal.xyz;
+    texcoord_inter = verts[gl_VertexIndex].texcoord.xy;
+    meshlet_idx_inter = verts[gl_VertexIndex].meshlet_idx;
+    position_inter = pos;
+
+    gl_Position = mvp * vec4(pos.xyz, 1.0);
 }
 @end
 
