@@ -21,11 +21,11 @@ once dependencies are installed, run `activate_dev.bat` and then `firsttime_init
 - ~~extract meshlet bounding spheres~~
 - ~~interleave vertex data~~
 - render meshlet bounding spheres
-- render arbitrary frustum
-- run frustum cull on all meshlet spheres each frame
+- ~~render arbitrary frustum~~
+- ~~run frustum cull on all meshlet spheres each frame~~
 - display culling
     - actually not render culled meshlets
-    - just color those meshlets differently based on cull
+    - ~~just color those meshlets differently based on cull~~
 - occlusion culling? 
 - manual web data packer (file_packer from emscripten) and customize js loading code
     - also add loading screen to desktop build. so web and desktop build stream in asset on boot and load it when rdy

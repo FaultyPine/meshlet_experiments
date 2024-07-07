@@ -31,12 +31,14 @@
 #include "graphics_pipeline.h"
 #include "log.h"
 #include "camera.h"
+#include "maths.h"
 
+#include "lines_renderer.h"
 
 struct MyMesh
 {
     struct SOKOL_SHDC_ALIGN(16) Vertex
-    {
+    { // TODO: just use the struct definition from the generated shader header
         hmm_vec4 position;
         hmm_vec4 normal;
         hmm_vec2 texcoord;
@@ -45,18 +47,28 @@ struct MyMesh
     };
     std::vector<int> indices = {};
     std::vector<Vertex> vertex_data = {};
+    // an index into meshlets also corresponds to an index into meshlet_bounds and can be referred to as a "meshlet id"
+    std::vector<meshopt_Meshlet> meshlets = {};
     std::vector<meshopt_Bounds> meshlet_bounds = {};
 
     sg_buffer idx_buf;
     sg_buffer vertex_buf;
+    sg_buffer meshlet_data_buf;
+    struct MeshFlags
+    {
+        u8 visible : 1;
+    };
+    MeshFlags flags;
 };
 
 struct RuntimeState
 {
     Camera cam = {};
+    Camera fakeCam = {};
     GraphicsPipelineState sprite_pipeline = {};
     GraphicsPipelineState model_pipeline = {};
     MyMesh mesh = {};
+    LinesRenderer lines_renderer = {};
 };
 static RuntimeState state;
 
@@ -160,7 +172,8 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model &model, const tinygltf::Primiti
     const float cone_weight = 0.0f;
 
     size_t max_meshlets = meshopt_buildMeshletsBound(mesh.indices.size(), max_vertices, max_triangles);
-    std::vector<meshopt_Meshlet> meshlets(max_meshlets);
+    mesh.meshlets = std::vector<meshopt_Meshlet>(max_meshlets);
+    std::vector<meshopt_Meshlet>& meshlets = mesh.meshlets;
     // indices into original vertex buffer
     std::vector<unsigned int> meshlet_vertices(max_meshlets * max_vertices);
     std::vector<unsigned char> meshlet_triangles(max_meshlets * max_triangles * 3);
@@ -202,6 +215,14 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model &model, const tinygltf::Primiti
     };
     mesh.vertex_buf = sg_make_buffer(&buf_desc);
 
+    buf_desc = 
+    {
+        .size = sizeof(meshlet_data_t) * mesh.meshlets.size(),
+        .type = SG_BUFFERTYPE_STORAGEBUFFER,
+        .usage = sg_usage::SG_USAGE_STREAM,
+    };
+    mesh.meshlet_data_buf = sg_make_buffer(&buf_desc);
+    mesh.flags.visible = true;
     return mesh;
 }
 
@@ -235,6 +256,7 @@ void init_model_pipeline()
         {
             .index_buffer = mesh.idx_buf,
             .vs.storage_buffers[SLOT_ssbo_vert_data] = mesh.vertex_buf,
+            .vs.storage_buffers[SLOT_ssbo_meshlet_data] = mesh.meshlet_data_buf,
         };
     sg_pipeline_desc pipeline_desc =
         {
@@ -268,10 +290,28 @@ static void init()
     simgui_setup(&imguidesc);
 
     init_model_pipeline();
-
     // state.sprite_pipeline = init_sprite_pipeline();
-
+    state.lines_renderer = InitLinesRenderer();
     InitializeCamera(state.cam);
+    InitializeCamera(state.fakeCam, CameraType::ORBITING);
+}
+
+
+u32 UpdateMeshletVisibilityBuffer(const MyMesh& mesh, const Camera& cam)
+{
+    u32 num_visible = 0;
+    std::vector<meshlet_data_t> meshlet_data = {};
+    for (int i = 0; i < mesh.meshlets.size(); i++)
+    {
+        const meshopt_Bounds& bounds = mesh.meshlet_bounds.at(i);
+        bool is_meshlet_visible = !CamSphereShouldCull(cam, bounds.center, bounds.radius);
+        if (is_meshlet_visible) num_visible++;
+        meshlet_data_t mdata = { .flags = is_meshlet_visible }; // only one flag rn
+        meshlet_data.push_back(mdata);
+    }
+    sg_range visibility_buf_rng = {meshlet_data.data(), meshlet_data.size() * sizeof(meshlet_data_t)};
+    sg_update_buffer(mesh.meshlet_data_buf, visibility_buf_rng);
+    return num_visible;
 }
 
 void draw()
@@ -284,8 +324,7 @@ void draw()
             .dpi_scale = sapp_dpi_scale()};
     simgui_new_frame(&imgui_frame_desc);
     sg_pass_action pass_action =
-        {
-            .colors[0] = {.load_action = SG_LOADACTION_CLEAR, .clear_value = {0.0f, 0.0f, 0.0f, 1.0f}}};
+        {.colors[0] = {.load_action = SG_LOADACTION_CLEAR, .clear_value = {0.2f, 0.2f, 0.15f, 1.0f}}};
     sg_pass pass = {.action = pass_action, .swapchain = sglue_swapchain()};
     sg_begin_pass(&pass);
     if (ImGui::BeginMainMenuBar())
@@ -297,29 +336,48 @@ void draw()
                 state.cam.pos = {0, 0.5, 2.5};
             }
             ImGui::SliderFloat("Camera orbit speed", &state.cam.orbit_speed, 0.0f, 20.0f);
+            if (ImGui::Button("FakeCam right rotate"))
+            {
+                hmm_vec4 front = HMM_Vec4(state.fakeCam.front.X, state.fakeCam.front.Y, state.fakeCam.front.Z, 1.0f);
+                front = HMM_MultiplyMat4ByVec4(HMM_Rotate(25.0, HMM_Vec3(0,1,0)), front);
+                state.fakeCam.front = HMM_Vec3(front.X, front.Y, front.Z);
+            }
+            if (ImGui::Button("FakeCam left rotate"))
+            {
+                hmm_vec4 front = HMM_Vec4(state.fakeCam.front.X, state.fakeCam.front.Y, state.fakeCam.front.Z, 1.0f);
+                front = HMM_MultiplyMat4ByVec4(HMM_Rotate(-25.0, HMM_Vec3(0,1,0)), front);
+                state.fakeCam.front = HMM_Vec3(front.X, front.Y, front.Z);
+            }
             ImGui::EndMenu();
         }
-
+        bool meshvis = state.mesh.flags.visible;
+        ImGui::Checkbox("Mesh visible", &meshvis);
+        state.mesh.flags.visible = meshvis;
         ImGui::EndMainMenuBar();
     }
 
     // models
-    hmm_mat4 proj = HMM_Perspective(60.0f, sapp_widthf() / sapp_heightf(), 0.01f, 100.0f);
+    hmm_mat4 proj = GetCameraProjectionMatrix(state.cam);
     hmm_mat4 view = GetCameraViewMatrix(state.cam);
     hmm_mat4 model = HMM_Mat4d(1);
     hmm_mat4 mvp = HMM_MultiplyMat4(HMM_MultiplyMat4(proj, view), model);
     struct vs_params
     {
         hmm_mat4 mvp;
+        float time;
     };
-    vs_params vs_params_instance = {.mvp = mvp};
-    if (state.model_pipeline.pip.id)
+    vs_params vs_params_instance = {.mvp = mvp, .time = (float)stm_sec(stm_now())};
+    if (state.model_pipeline.pip.id && state.mesh.flags.visible)
     {
+        u32 num_visible_meshlets = UpdateMeshletVisibilityBuffer(state.mesh, state.fakeCam);
         sg_apply_pipeline(state.model_pipeline.pip);
         sg_apply_bindings(&state.model_pipeline.bind);
         sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, SG_RANGE_REF(vs_params_instance));
         sg_draw(0, state.mesh.indices.size(), 1);
     }
+    // draw fake cam frustum
+    DrawCamFrustum(state.fakeCam, state.lines_renderer, HMM_Vec3(0,1,1));
+    FlushLinesRenderer(state.lines_renderer, mvp);
 
     // sprites
     if (state.sprite_pipeline.pip.id)
@@ -338,6 +396,9 @@ void frame_sokol_cb()
 {
     sfetch_dowork();
     CameraTick(state.cam);
+    CameraTick(state.fakeCam);
+    float mod = sinf(stm_sec(stm_now())) * 2.0f;
+    state.fakeCam.lookat_override = HMM_Vec3(state.fakeCam.lookat_override.X, mod, state.fakeCam.lookat_override.Z);
     draw();
 }
 

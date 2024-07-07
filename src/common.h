@@ -33,3 +33,6 @@ typedef double f64;
 #define SOKOL_ASSERT(x) if (!(x)) { printf("%s | %s:%i", #x, __FILE__, __LINE__); DEBUG_BREAK; }
 
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(arr) ( sizeof((arr))/sizeof((arr)[0]) )
+#endif

@@ -2,63 +2,80 @@
 
 #include "input.h"
 #include "external/sokol/sokol_app.h"
+#include "maths.h"
+#include "lines_renderer.h"
 
 #define HANDMADE_MATH_IMPLEMENTATION
 #include "external/HandmadeMath.h"
 
 
-void InitializeCamera(Camera& cam)
+void InitializeCamera(Camera& cam, CameraType type)
 {
+    cam.type = type;
     cam.pos = {0, 0.5, 2.5};
-    cam.orbit_speed = 0.2f;
-    
-    cam.should_override_lookat = true;
-    cam.lookat_override = HMM_Vec3(0,0,0);
+    cam.front = HMM_NormalizeVec3(HMM_SubtractVec3(cam.pos, HMM_Vec3(0,0,0)));
+    if (type == ORBITING)
+    {
+        cam.orbit_speed = 0.2f;
+        cam.should_override_lookat = true;
+        cam.lookat_override = HMM_Vec3(0,0,0);
+    }
+
+    cam.FOV = 60.0f;
+    cam.nearClip = 0.01f;
+    cam.farClip = 100.0f;
 }
 
 void CameraTick(Camera& cam)
 {
     constexpr float speed = 0.1f;
     hmm_vec3& cam_pos = cam.pos;
-    hmm_vec4 rotated = HMM_MultiplyMat4ByVec4(HMM_Rotate(cam.orbit_speed, HMM_Vec3(0,1,0)), HMM_Vec4(cam_pos.X, cam_pos.Y, cam_pos.Z, 1.0));
-    cam_pos = HMM_Vec3(rotated.X, rotated.Y, rotated.Z);
-    hmm_vec3 camera_right = HMM_NormalizeVec3(HMM_Cross(cam.front, HMM_Vec3(0.0, 1.0, 0.0)));
-    if (IsKeyDown(SAPP_KEYCODE_W))
+    if (cam.type == ORBITING)
     {
-        cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
+        hmm_vec4 rotated = HMM_MultiplyMat4ByVec4(HMM_Rotate(cam.orbit_speed, HMM_Vec3(0,1,0)), HMM_Vec4(cam_pos.X, cam_pos.Y, cam_pos.Z, 1.0));
+        cam_pos = HMM_Vec3(rotated.X, rotated.Y, rotated.Z);
+        cam.front = HMM_NormalizeVec3(HMM_SubtractVec3(cam.lookat_override, cam.pos));
     }
-    if (IsKeyDown(SAPP_KEYCODE_S))
+    else if (cam.type == FREECAM)
     {
-        cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
-    }
-    if (IsKeyDown(SAPP_KEYCODE_A))
-    {
-        cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
-    }
-    if (IsKeyDown(SAPP_KEYCODE_D))
-    {
-        cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
-    }
-    if (IsKeyDown(SAPP_KEYCODE_LEFT_SHIFT))
-    {
-        cam_pos.Y -= speed;
-    }
-    if (IsKeyDown(SAPP_KEYCODE_SPACE))
-    {
-        cam_pos.Y += speed;
+        hmm_vec3 camera_right = HMM_NormalizeVec3(HMM_Cross(cam.front, HMM_Vec3(0.0, 1.0, 0.0)));
+        if (IsKeyDown(SAPP_KEYCODE_W))
+        {
+            cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
+        }
+        if (IsKeyDown(SAPP_KEYCODE_S))
+        {
+            cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
+        }
+        if (IsKeyDown(SAPP_KEYCODE_A))
+        {
+            cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
+        }
+        if (IsKeyDown(SAPP_KEYCODE_D))
+        {
+            cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
+        }
+        if (IsKeyDown(SAPP_KEYCODE_LEFT_SHIFT))
+        {
+            cam_pos.Y -= speed;
+        }
+        if (IsKeyDown(SAPP_KEYCODE_SPACE))
+        {
+            cam_pos.Y += speed;
+        }
     }
 }
 
-hmm_mat4 GetCameraViewMatrix(Camera& cam)
+hmm_mat4 GetCameraViewMatrix(const Camera& cam)
 {
     hmm_vec3 center = HMM_AddVec3(cam.pos, cam.front);
-    if (cam.should_override_lookat)
-    {
-        center = cam.lookat_override;
-        cam.front = HMM_SubtractVec3(center, cam.pos);
-    }
     hmm_mat4 view = HMM_LookAt(cam.pos, center, HMM_Vec3(0.0f, 1.0f, 0.0f));
     return view;
+}
+
+hmm_mat4 GetCameraProjectionMatrix(const Camera& cam)
+{
+    return HMM_Perspective(cam.FOV, sapp_widthf() / sapp_heightf(), cam.nearClip, cam.farClip);
 }
 
 hmm_vec3 GetNormalizedLookDir(float yaw, float pitch) 
@@ -70,144 +87,14 @@ hmm_vec3 GetNormalizedLookDir(float yaw, float pitch)
     return HMM_NormalizeVec3(direction);
 }
 
-
-
-template <typename fptype>
-bool InvertMatrix(const fptype* m, fptype* invOut)
+void DrawCamFrustum(const Camera& cam, LinesRenderer& renderer, hmm_vec3 color)
 {
-    double inv[16], det;
-    int i;
-
-    inv[0] = m[5]  * m[10] * m[15] - 
-             m[5]  * m[11] * m[14] - 
-             m[9]  * m[6]  * m[15] + 
-             m[9]  * m[7]  * m[14] +
-             m[13] * m[6]  * m[11] - 
-             m[13] * m[7]  * m[10];
-
-    inv[4] = -m[4]  * m[10] * m[15] + 
-              m[4]  * m[11] * m[14] + 
-              m[8]  * m[6]  * m[15] - 
-              m[8]  * m[7]  * m[14] - 
-              m[12] * m[6]  * m[11] + 
-              m[12] * m[7]  * m[10];
-
-    inv[8] = m[4]  * m[9] * m[15] - 
-             m[4]  * m[11] * m[13] - 
-             m[8]  * m[5] * m[15] + 
-             m[8]  * m[7] * m[13] + 
-             m[12] * m[5] * m[11] - 
-             m[12] * m[7] * m[9];
-
-    inv[12] = -m[4]  * m[9] * m[14] + 
-               m[4]  * m[10] * m[13] +
-               m[8]  * m[5] * m[14] - 
-               m[8]  * m[6] * m[13] - 
-               m[12] * m[5] * m[10] + 
-               m[12] * m[6] * m[9];
-
-    inv[1] = -m[1]  * m[10] * m[15] + 
-              m[1]  * m[11] * m[14] + 
-              m[9]  * m[2] * m[15] - 
-              m[9]  * m[3] * m[14] - 
-              m[13] * m[2] * m[11] + 
-              m[13] * m[3] * m[10];
-
-    inv[5] = m[0]  * m[10] * m[15] - 
-             m[0]  * m[11] * m[14] - 
-             m[8]  * m[2] * m[15] + 
-             m[8]  * m[3] * m[14] + 
-             m[12] * m[2] * m[11] - 
-             m[12] * m[3] * m[10];
-
-    inv[9] = -m[0]  * m[9] * m[15] + 
-              m[0]  * m[11] * m[13] + 
-              m[8]  * m[1] * m[15] - 
-              m[8]  * m[3] * m[13] - 
-              m[12] * m[1] * m[11] + 
-              m[12] * m[3] * m[9];
-
-    inv[13] = m[0]  * m[9] * m[14] - 
-              m[0]  * m[10] * m[13] - 
-              m[8]  * m[1] * m[14] + 
-              m[8]  * m[2] * m[13] + 
-              m[12] * m[1] * m[10] - 
-              m[12] * m[2] * m[9];
-
-    inv[2] = m[1]  * m[6] * m[15] - 
-             m[1]  * m[7] * m[14] - 
-             m[5]  * m[2] * m[15] + 
-             m[5]  * m[3] * m[14] + 
-             m[13] * m[2] * m[7] - 
-             m[13] * m[3] * m[6];
-
-    inv[6] = -m[0]  * m[6] * m[15] + 
-              m[0]  * m[7] * m[14] + 
-              m[4]  * m[2] * m[15] - 
-              m[4]  * m[3] * m[14] - 
-              m[12] * m[2] * m[7] + 
-              m[12] * m[3] * m[6];
-
-    inv[10] = m[0]  * m[5] * m[15] - 
-              m[0]  * m[7] * m[13] - 
-              m[4]  * m[1] * m[15] + 
-              m[4]  * m[3] * m[13] + 
-              m[12] * m[1] * m[7] - 
-              m[12] * m[3] * m[5];
-
-    inv[14] = -m[0]  * m[5] * m[14] + 
-               m[0]  * m[6] * m[13] + 
-               m[4]  * m[1] * m[14] - 
-               m[4]  * m[2] * m[13] - 
-               m[12] * m[1] * m[6] + 
-               m[12] * m[2] * m[5];
-
-    inv[3] = -m[1] * m[6] * m[11] + 
-              m[1] * m[7] * m[10] + 
-              m[5] * m[2] * m[11] - 
-              m[5] * m[3] * m[10] - 
-              m[9] * m[2] * m[7] + 
-              m[9] * m[3] * m[6];
-
-    inv[7] = m[0] * m[6] * m[11] - 
-             m[0] * m[7] * m[10] - 
-             m[4] * m[2] * m[11] + 
-             m[4] * m[3] * m[10] + 
-             m[8] * m[2] * m[7] - 
-             m[8] * m[3] * m[6];
-
-    inv[11] = -m[0] * m[5] * m[11] + 
-               m[0] * m[7] * m[9] + 
-               m[4] * m[1] * m[11] - 
-               m[4] * m[3] * m[9] - 
-               m[8] * m[1] * m[7] + 
-               m[8] * m[3] * m[5];
-
-    inv[15] = m[0] * m[5] * m[10] - 
-              m[0] * m[6] * m[9] - 
-              m[4] * m[1] * m[10] + 
-              m[4] * m[2] * m[9] + 
-              m[8] * m[1] * m[6] - 
-              m[8] * m[2] * m[5];
-
-    det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
-
-    if (det == 0)
-        return false;
-
-    det = 1.0 / det;
-
-    for (i = 0; i < 16; i++)
-        invOut[i] = inv[i] * det;
-
-    return true;
-}
-
-void GetFrustumVertices(hmm_mat4 projection, hmm_mat4 view, hmm_vec3 frustumVertsOut[8])
-{
-    hmm_mat4 clip = HMM_MultiplyMat4(projection, view);
-    hmm_mat4 invClip;
-    bool result = InvertMatrix<float>((float*)&clip.Elements[0], (float*)&invClip.Elements[0]);
+    hmm_vec3 camFrustumVerts[8];
+    hmm_mat4 view = GetCameraViewMatrix(cam);
+    hmm_mat4 proj = GetCameraProjectionMatrix(cam);
+    hmm_mat4 projview = HMM_MultiplyMat4(proj, view);
+    hmm_mat4 invProjView = {};
+    bool result = InvertMatrix((float*)&projview.Elements[0], (float*)&invProjView.Elements[0]);
     SOKOL_ASSERT(result);
     static hmm_vec3 _cameraFrustumCornerVertices[8] =
     {
@@ -216,15 +103,17 @@ void GetFrustumVertices(hmm_mat4 projection, hmm_mat4 view, hmm_vec3 frustumVert
         // far
         {-1, -1, 1},	{ 1, -1, 1},	{ 1,  1, 1},  {-1,  1, 1}
     };
-    static unsigned int frustumIndices[] = {0,1 , 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7};
-    hmm_vec3 camFrustumVerts[8];
-    for (unsigned int i = 0; i < 8; i++)
+    static u32 frustumIndices[] = {0,1 , 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7};
+    for (u32 i = 0; i < 8; i++)
     {
         hmm_vec3 defaultVert = _cameraFrustumCornerVertices[i];
-        hmm_vec4 vert = HMM_MultiplyMat4ByVec4(invClip, HMM_Vec4(defaultVert.X, defaultVert.Y, defaultVert.Z, 1.0));
-        camFrustumVerts[i] = HMM_DivideVec3f(HMM_Vec3(vert.X, vert.Y, vert.Z), vert.W);
+        hmm_vec4 vert = HMM_MultiplyMat4ByVec4(invProjView, HMM_Vec3To4(defaultVert));
+        camFrustumVerts[i] = HMM_DivideVec3f(HMM_Vec4To3(vert), vert.W);
     }
-    frustumVertsOut = camFrustumVerts;
+    for (u32 i = 0; i < ARRAY_SIZE(frustumIndices); i+=2)
+    {
+        PushLine(renderer, camFrustumVerts[frustumIndices[i]].Elements, camFrustumVerts[frustumIndices[i+1]].Elements, color.Elements);
+    }
 }
 
 void extract_planes_from_projviewmat(
@@ -250,12 +139,19 @@ void GetFrustumPlanes(hmm_mat4 proj, hmm_mat4 view, hmm_vec4 frustumPlanesOut[6]
 }
 
 // frustumPlanes contains plane coefficients (a,b,c,d) where: ax + by + cz = d
-bool FrustumSphereShouldCull(hmm_vec4 frustumPlanes[6], hmm_vec3 point, float sphereRadius)
+bool FrustumSphereShouldCull(hmm_vec4 frustumPlanes[6], const float sphereCenter[3], float sphereRadius)
 {
     for(int i = 0; i < 6; i++)
     {
-        float dist = HMM_DotVec4(HMM_Vec4(point.X, point.Y, point.Z, 1.0), frustumPlanes[i]) + sphereRadius;
+        float dist = HMM_DotVec4(HMM_Vec4(sphereCenter[0], sphereCenter[1], sphereCenter[2], 1.0), frustumPlanes[i]) + sphereRadius;
         if(dist < 0) return true; // sphere culled
     }
     return false;
+}
+
+bool CamSphereShouldCull(const Camera& cam, const float sphereCenter[3], float sphereRadius)
+{
+    hmm_vec4 frustumPlanes[6];
+    GetFrustumPlanes(GetCameraProjectionMatrix(cam), GetCameraViewMatrix(cam), frustumPlanes);
+    return FrustumSphereShouldCull(frustumPlanes, sphereCenter, sphereRadius);
 }
