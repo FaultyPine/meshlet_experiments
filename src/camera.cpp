@@ -16,11 +16,14 @@ void InitializeCamera(Camera& cam, CameraType type)
     cam.front = HMM_NormalizeVec3(HMM_SubtractVec3(cam.pos, HMM_Vec3(0,0,0)));
     if (type == ORBITING)
     {
-        cam.orbit_speed = 0.2f;
+        cam.speed = 0.2f;
         cam.should_override_lookat = true;
         cam.lookat_override = HMM_Vec3(0,0,0);
     }
-
+    else
+    {
+        cam.speed = 0.1f;
+    }
     cam.FOV = 60.0f;
     cam.nearClip = 0.01f;
     cam.farClip = 100.0f;
@@ -28,11 +31,10 @@ void InitializeCamera(Camera& cam, CameraType type)
 
 void CameraTick(Camera& cam)
 {
-    constexpr float speed = 0.1f;
     hmm_vec3& cam_pos = cam.pos;
     if (cam.type == ORBITING)
     {
-        hmm_vec4 rotated = HMM_MultiplyMat4ByVec4(HMM_Rotate(cam.orbit_speed, HMM_Vec3(0,1,0)), HMM_Vec4(cam_pos.X, cam_pos.Y, cam_pos.Z, 1.0));
+        hmm_vec4 rotated = HMM_MultiplyMat4ByVec4(HMM_Rotate(cam.speed, HMM_Vec3(0,1,0)), HMM_Vec4(cam_pos.X, cam_pos.Y, cam_pos.Z, 1.0));
         cam_pos = HMM_Vec3(rotated.X, rotated.Y, rotated.Z);
         cam.front = HMM_NormalizeVec3(HMM_SubtractVec3(cam.lookat_override, cam.pos));
     }
@@ -41,27 +43,27 @@ void CameraTick(Camera& cam)
         hmm_vec3 camera_right = HMM_NormalizeVec3(HMM_Cross(cam.front, HMM_Vec3(0.0, 1.0, 0.0)));
         if (IsKeyDown(SAPP_KEYCODE_W))
         {
-            cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
+            cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), cam.speed));
         }
         if (IsKeyDown(SAPP_KEYCODE_S))
         {
-            cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), speed));
+            cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(HMM_Vec3(cam.front.X, 0.0, cam.front.Z), cam.speed));
         }
         if (IsKeyDown(SAPP_KEYCODE_A))
         {
-            cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
+            cam_pos = HMM_SubtractVec3(cam_pos, HMM_MultiplyVec3f(camera_right, cam.speed));
         }
         if (IsKeyDown(SAPP_KEYCODE_D))
         {
-            cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(camera_right, speed));
+            cam_pos = HMM_AddVec3(cam_pos, HMM_MultiplyVec3f(camera_right, cam.speed));
         }
         if (IsKeyDown(SAPP_KEYCODE_LEFT_SHIFT))
         {
-            cam_pos.Y -= speed;
+            cam_pos.Y -= cam.speed;
         }
         if (IsKeyDown(SAPP_KEYCODE_SPACE))
         {
-            cam_pos.Y += speed;
+            cam_pos.Y += cam.speed;
         }
     }
 }

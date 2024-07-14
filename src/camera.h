@@ -15,7 +15,7 @@ struct Camera
     hmm_vec3 front;
     hmm_vec3 lookat_override;
     bool should_override_lookat;
-    float orbit_speed;
+    float speed;
     float yaw;
     float pitch;
     float FOV;

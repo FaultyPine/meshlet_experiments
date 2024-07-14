@@ -84,11 +84,12 @@ void main()
     vec3 light_dir = normalize(vec3(0, 0.5, sin(time_inter)));
     float ndotl = dot(normal, light_dir);
     vec3 col = MeshletIdxToColor(meshlet_idx_inter);
+    float alpha = 1.0;
     if (is_visible_inter == 0)
     {
-        col = vec3(1,0,0);
+        alpha = 0.1;
     }
-    frag_color = vec4(col, 1.0);
+    frag_color = vec4(col, alpha);
 }
 @end
 

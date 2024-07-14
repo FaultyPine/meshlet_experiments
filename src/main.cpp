@@ -86,10 +86,13 @@ MyMesh GltfPrimitiveToMesh(const tinygltf::Model &model, const tinygltf::Primiti
         memcpy(mesh.indices.data(), gltf_indices.data() + indices_bufview.byteOffset, indices_bufview.byteLength);
         sg_buffer_desc buf_desc =
             {
+                .size = mesh.indices.size() * sizeof(int),
                 .type = sg_buffer_type::SG_BUFFERTYPE_INDEXBUFFER,
-                .data = {mesh.indices.data(), mesh.indices.size() * sizeof(int)},
+                .usage = SG_USAGE_STREAM,
+                //.data = {mesh.indices.data(), mesh.indices.size() * sizeof(int)},
             };
         mesh.idx_buf = sg_make_buffer(buf_desc);
+        sg_update_buffer(mesh.idx_buf, {.ptr = mesh.indices.data(), mesh.indices.size() * sizeof(int)});
     }
 
     struct GltfBufNView
@@ -262,13 +265,19 @@ void init_model_pipeline()
         {
             .shader = sg_make_shader(lit_model_shader_desc(sg_query_backend())),
             .depth =
-                {
-                    .compare = SG_COMPAREFUNC_LESS_EQUAL,
-                    .write_enabled = true,
-                },
-            .index_type = SG_INDEXTYPE_UINT32,
+            {
+                .compare = SG_COMPAREFUNC_LESS_EQUAL,
+                .write_enabled = true,
+            },
             .cull_mode = SG_CULLMODE_BACK,
             .face_winding = sg_face_winding::SG_FACEWINDING_CCW,
+            .index_type = sg_index_type::SG_INDEXTYPE_UINT32,   
+            .colors[0].blend = 
+            {
+                .enabled = true,
+                .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+                .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
+            },           
         };
     sg_pipeline pipeline = sg_make_pipeline(&pipeline_desc);
     state.model_pipeline.pip = pipeline;
@@ -335,7 +344,7 @@ void draw()
             {
                 state.cam.pos = {0, 0.5, 2.5};
             }
-            ImGui::SliderFloat("Camera orbit speed", &state.cam.orbit_speed, 0.0f, 20.0f);
+            ImGui::SliderFloat("Camera speed", &state.cam.speed, 0.0f, 20.0f);
             if (ImGui::Button("FakeCam right rotate"))
             {
                 hmm_vec4 front = HMM_Vec4(state.fakeCam.front.X, state.fakeCam.front.Y, state.fakeCam.front.Z, 1.0f);
@@ -397,7 +406,8 @@ void frame_sokol_cb()
     sfetch_dowork();
     CameraTick(state.cam);
     CameraTick(state.fakeCam);
-    float mod = sinf(stm_sec(stm_now())) * 2.0f;
+    state.fakeCam.speed = 0.01f;
+    float mod = sin(stm_sec(stm_now()) * 0.4) * 2.0f;
     state.fakeCam.lookat_override = HMM_Vec3(state.fakeCam.lookat_override.X, mod, state.fakeCam.lookat_override.Z);
     draw();
 }
