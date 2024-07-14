@@ -409,7 +409,7 @@ void draw()
         hmm_mat4 mvp;
         float time;
     };
-    vs_params vs_params_instance = {.mvp = mvp, .time = (float)stm_sec(stm_now())};
+    vs_params_t vs_params_instance = {.mvp = mvp, .time = (float)stm_sec(stm_now())};
     if (state.model_pipeline.pip.id && state.mesh.flags.visible)
     {
         u32 num_visible_meshlets = UpdateMeshletVisibilityBuffer(state.mesh, state.fakeCam);

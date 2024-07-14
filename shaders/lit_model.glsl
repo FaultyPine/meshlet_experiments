@@ -1,3 +1,4 @@
+@ctype mat4 hmm_mat4
 @vs vs
 
 
@@ -35,9 +36,9 @@ readonly buffer ssbo_meshlet_data
 out vec3 position_inter;
 out vec3 normal_inter;
 out vec2 texcoord_inter;
-out uint meshlet_idx_inter;
-out float time_inter;
-out uint is_visible_inter;
+flat out uint meshlet_idx_inter;
+flat out float time_inter;
+flat out uint is_visible_inter;
 
 void main() 
 {
