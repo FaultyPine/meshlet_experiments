@@ -56,7 +56,6 @@ void FlushLinesRenderer(LinesRenderer& renderer, hmm_mat4 mvp)
         struct vs_params { hmm_mat4 mvp; };
         vs_params vs_params = {.mvp = mvp};
         sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, SG_RANGE_REF(vs_params));
-        SOKOL_ASSERT(renderer.points.size() % 3 == 0);
         sg_draw(0, renderer.points.size(), 1);
         // clear for next frame
         renderer.points.clear();

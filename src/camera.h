@@ -31,6 +31,8 @@ enum FrustumPlanes
 
 void InitializeCamera(Camera& cam, CameraType type = CameraType::FREECAM);
 void CameraTick(Camera& cam);
+struct sapp_event;
+void OnMouseEvent(const sapp_event *event, Camera& cam);
 hmm_mat4 GetCameraViewMatrix(const Camera& cam);
 hmm_mat4 GetCameraProjectionMatrix(const Camera& cam);
 hmm_vec3 GetNormalizedLookDir(float yaw, float pitch);

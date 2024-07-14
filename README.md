@@ -28,6 +28,8 @@ once dependencies are installed, run `activate_dev.bat` and then `firsttime_init
 - display culling
     - actually not render culled meshlets
     - ~~just color those meshlets differently based on cull~~
-- occlusion culling? 
+- occlusion culling
 - manual web data packer (file_packer from emscripten) and customize js loading code
     - also add loading screen to desktop build. so web and desktop build stream in asset on boot and load it when rdy
+- ~~lock fake cam to real cam and use bool to "detach" it~~
+- model transforms

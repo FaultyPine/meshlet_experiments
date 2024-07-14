@@ -69,6 +69,7 @@ struct RuntimeState
     GraphicsPipelineState model_pipeline = {};
     MyMesh mesh = {};
     LinesRenderer lines_renderer = {};
+    bool isFakeCamAttached = true;
 };
 static RuntimeState state;
 
@@ -297,14 +298,26 @@ static void init()
     sg_setup(&appdesc);
     simgui_desc_t imguidesc = {.logger = slog_func};
     simgui_setup(&imguidesc);
+    sapp_lock_mouse(false);
+    sapp_show_mouse(true);
 
     init_model_pipeline();
     // state.sprite_pipeline = init_sprite_pipeline();
     state.lines_renderer = InitLinesRenderer();
     InitializeCamera(state.cam);
     InitializeCamera(state.fakeCam, CameraType::ORBITING);
+    state.fakeCam.speed = 0.01f;
 }
 
+bool MeshletBackfaceCull(const Camera& cam, const meshopt_Bounds& bounds)
+{
+    // dot(center - camera_position, cone_axis) >= cone_cutoff * length(center - camera_position) + radius
+    hmm_vec3 meshletCenter = HMM_Vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
+    hmm_vec3 coneAxis = HMM_Vec3(bounds.cone_axis[0], bounds.cone_axis[1], bounds.cone_axis[2]);
+    hmm_vec3 meshletToCam = HMM_SubtractVec3(meshletCenter, cam.pos);
+    float dot = HMM_DotVec3(meshletToCam, coneAxis);
+    return dot >= bounds.cone_cutoff * HMM_LengthVec3(meshletToCam) + bounds.radius;
+}
 
 u32 UpdateMeshletVisibilityBuffer(const MyMesh& mesh, const Camera& cam)
 {
@@ -313,7 +326,10 @@ u32 UpdateMeshletVisibilityBuffer(const MyMesh& mesh, const Camera& cam)
     for (int i = 0; i < mesh.meshlets.size(); i++)
     {
         const meshopt_Bounds& bounds = mesh.meshlet_bounds.at(i);
-        bool is_meshlet_visible = !CamSphereShouldCull(cam, bounds.center, bounds.radius);
+        bool should_frustum_cull = CamSphereShouldCull(cam, bounds.center, bounds.radius);
+        bool should_backface_cull = MeshletBackfaceCull(cam, bounds);
+        // bool should_occlusion_cull = OcclusionCull(cam, )
+        bool is_meshlet_visible = !should_frustum_cull && !should_backface_cull;
         if (is_meshlet_visible) num_visible++;
         meshlet_data_t mdata = { .flags = is_meshlet_visible }; // only one flag rn
         meshlet_data.push_back(mdata);
@@ -321,6 +337,23 @@ u32 UpdateMeshletVisibilityBuffer(const MyMesh& mesh, const Camera& cam)
     sg_range visibility_buf_rng = {meshlet_data.data(), meshlet_data.size() * sizeof(meshlet_data_t)};
     sg_update_buffer(mesh.meshlet_data_buf, visibility_buf_rng);
     return num_visible;
+}
+
+void DrawGrid(hmm_vec3 gridCenter, hmm_vec3 color, int gridDimension, float gridSpacing)
+{
+    float extent = (gridDimension/2) * gridSpacing;
+    for (int i = -gridDimension/2; i <= gridDimension/2; i++)
+    {
+        {
+            float a[3] = {gridCenter.X + extent, 0, gridCenter.Z + (i * gridSpacing)};
+            float b[3] = {gridCenter.X - extent, 0, gridCenter.Z + (i * gridSpacing)};
+            PushLine(state.lines_renderer, a, b, color.Elements);
+        }{
+            float a[3] = {gridCenter.X + (i * gridSpacing), 0, gridCenter.Z + extent};
+            float b[3] = {gridCenter.X + (i * gridSpacing), 0, gridCenter.Z - extent};
+            PushLine(state.lines_renderer, a, b, color.Elements);
+        }
+    }
 }
 
 void draw()
@@ -362,6 +395,7 @@ void draw()
         bool meshvis = state.mesh.flags.visible;
         ImGui::Checkbox("Mesh visible", &meshvis);
         state.mesh.flags.visible = meshvis;
+        ImGui::Checkbox("Fakecam attached", &state.isFakeCamAttached);
         ImGui::EndMainMenuBar();
     }
 
@@ -385,7 +419,11 @@ void draw()
         sg_draw(0, state.mesh.indices.size(), 1);
     }
     // draw fake cam frustum
-    DrawCamFrustum(state.fakeCam, state.lines_renderer, HMM_Vec3(0,1,1));
+    if (!state.isFakeCamAttached)
+    {
+        DrawCamFrustum(state.fakeCam, state.lines_renderer, HMM_Vec3(0,1,1));
+    }
+    DrawGrid(HMM_Vec3(0,0,0), HMM_Vec3(1,1,1), 15, 0.5f);    
     FlushLinesRenderer(state.lines_renderer, mvp);
 
     // sprites
@@ -405,10 +443,10 @@ void frame_sokol_cb()
 {
     sfetch_dowork();
     CameraTick(state.cam);
-    CameraTick(state.fakeCam);
-    state.fakeCam.speed = 0.01f;
-    float mod = sin(stm_sec(stm_now()) * 0.4) * 2.0f;
-    state.fakeCam.lookat_override = HMM_Vec3(state.fakeCam.lookat_override.X, mod, state.fakeCam.lookat_override.Z);
+    if (state.isFakeCamAttached)
+    {
+        state.fakeCam = state.cam;
+    }
     draw();
 }
 
@@ -449,15 +487,7 @@ void event(const sapp_event *event)
     }
     if (event->type == SAPP_EVENTTYPE_MOUSE_MOVE)
     {
-        float mousedx = event->mouse_dx;
-        float mousedy = event->mouse_dy;
-#define MOUSE_SENSITIVITY 0.05f
-        mousedx *= MOUSE_SENSITIVITY;
-        mousedy *= MOUSE_SENSITIVITY;
-        state.cam.pitch -= mousedy;
-        state.cam.yaw += mousedx;
-        state.cam.pitch = HMM_Clamp(-89.0f, state.cam.pitch, 89.0f);
-        state.cam.front = GetNormalizedLookDir(state.cam.yaw, state.cam.pitch);
+       OnMouseEvent(event, state.cam);
     }
     else if (event->type == SAPP_EVENTTYPE_KEY_DOWN)
     {

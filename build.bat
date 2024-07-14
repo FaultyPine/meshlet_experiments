@@ -13,6 +13,11 @@ if "%web%"=="1" (
     goto :eof
 )
 
+if "%clean%"=="1" (
+    rmdir build-desktop /q /s
+    rmdir build-web /q /s
+    goto :eof
+)
 
 tup build-desktop
 

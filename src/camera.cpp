@@ -38,7 +38,7 @@ void CameraTick(Camera& cam)
         cam_pos = HMM_Vec3(rotated.X, rotated.Y, rotated.Z);
         cam.front = HMM_NormalizeVec3(HMM_SubtractVec3(cam.lookat_override, cam.pos));
     }
-    else if (cam.type == FREECAM)
+    else if (cam.type == FREECAM && sapp_mouse_locked())
     {
         hmm_vec3 camera_right = HMM_NormalizeVec3(HMM_Cross(cam.front, HMM_Vec3(0.0, 1.0, 0.0)));
         if (IsKeyDown(SAPP_KEYCODE_W))
@@ -66,6 +66,20 @@ void CameraTick(Camera& cam)
             cam_pos.Y += cam.speed;
         }
     }
+}
+
+void OnMouseEvent(const sapp_event *event, Camera& cam)
+{
+    if (!sapp_mouse_locked()) return;
+    float mousedx = event->mouse_dx;
+    float mousedy = event->mouse_dy;
+#define MOUSE_SENSITIVITY 0.05f
+    mousedx *= MOUSE_SENSITIVITY;
+    mousedy *= MOUSE_SENSITIVITY;
+    cam.pitch -= mousedy;
+    cam.yaw += mousedx;
+    cam.pitch = HMM_Clamp(-89.0f, cam.pitch, 89.0f);
+    cam.front = GetNormalizedLookDir(cam.yaw, cam.pitch);
 }
 
 hmm_mat4 GetCameraViewMatrix(const Camera& cam)

@@ -87,7 +87,7 @@ void main()
     float alpha = 1.0;
     if (is_visible_inter == 0)
     {
-        alpha = 0.1;
+        discard;
     }
     frag_color = vec4(col, alpha);
 }
