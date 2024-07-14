@@ -1,5 +1,7 @@
 This is just a lil playground to mess around in. Not worried about performance, correctness, or really anything at all.  
 Messing with the sokol library, a new build system, meshlets... and whatever else I come up with  
+
+https://github.com/FaultyPine/meshlet_experiments/assets/53064235/465b22c4-f50c-484d-984b-189fab7645e8
   
 ## build dependencies  
 
